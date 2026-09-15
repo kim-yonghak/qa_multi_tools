@@ -1,0 +1,11 @@
+{
+  "name": "json-folder-compare",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node server.mjs",
+    "share": "node server.mjs --host 0.0.0.0",
+    "test": "node --test tests/compare.test.mjs"
+  }
+}
