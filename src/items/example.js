@@ -1,0 +1,26 @@
+// User example, with original row/pair order, duplicates and two unknown items.
+const rows=[];
+const six=['사이드','권갑','검/방패','전투방패','단검','대검'];
+const repeat=(prefix,enh,weapons=six)=>weapons.flatMap(w=>[`${prefix} ${w}`,enh]);
+const four=(prefix,enh)=>repeat(prefix,enh,['사이드','사이드','권갑','권갑']);
+rows.push(['초심자의 사이드',0,'초심자의 사이드',0]);
+rows.push(['초심자의 사이드',9,'초심자의 권갑',9,'초심자의 검/방패',9,'초심자 전투방패',9,'초심자 단검',9,'초심자 대검',9]);
+rows.push(['숙련자의 사이드',9,'숙련자의 권갑',9,'숙련자의 검/방패',9,'숙련자 전투방패',9,'숙련자 단검',9,'숙련자 대검',9]);
+rows.push(repeat('그을린',9));
+rows.push(['초심자의 사이드',9,'숙련자의 사이드',9,'그을린 사이드',9]);
+rows.push(['성터의 사이드',9,'경비대 사이드',9,'푸른 월광의 사이드',9]);
+for(const enh of [7,9,12])rows.push(repeat('개척자',enh));
+for(const prefix of ['여행자','여행자','달인의','달인의'])rows.push(repeat(prefix,12));
+rows.push(['개척자 사이드',9,'여행자 사이드',9,'달인의 사이드',9]);
+for(const prefix of ['구속된 자의','검은 기운의','깊은 공허의','푸른 월광의','타락한 신념의','사나운 폭풍의'])rows.push(four(prefix,7),repeat(prefix,9));
+for(const prefix of ['붉은 태양의','검은 오르의','황금피의','계승자의'])rows.push(four(prefix,9),four(prefix,12));
+const middle=['구속된 자의','검은 기운의','깊은 공허의','푸른 월광의','타락한 신념의','사나운 폭풍의','붉은 태양의','검은 오르의','황금피의','계승자의'];
+for(const [a,b] of [[0,4],[4,8],[8,10]])rows.push(middle.slice(a,b).flatMap(p=>[`${p} 사이드`,7]));
+for(const enh of [9,12])for(const [a,b] of [[0,5],[5,10]])rows.push(middle.slice(a,b).flatMap(p=>[`${p} 사이드`,enh]));
+for(const [prefix,other] of [['아잠 히산','붉은 태양의'],['세라드','검은 오르의'],['세르비스','황금피의'],['잿빛 여명','계승자의']])rows.push([`${prefix} 사이드`,8,`${other} 사이드`,9],[`${prefix} 사이드`,9,`${prefix} 사이드`,9]);
+rows.push(['아잠 히산 사이드',12,'세라드 사이드',12,'세르비스 사이드',12,'잿빛 여명 사이드',12]);
+rows.push(['결속의 사이드',9]);
+for(const prefix of ['결속의','동행의'])for(const enh of [9,12])rows.push(repeat(prefix,enh,['사이드','권갑','검/방패','전투방패','대검','단검']));
+rows.push(['카말리아의 심장',1,'카말리아의 날개',1]);
+export const EXAMPLE_GRID=rows;
+export const EXAMPLE_TSV=rows.map(row=>row.join('\t')).join('\n');
