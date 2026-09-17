@@ -1,0 +1,9 @@
+import {test} from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';import vm from 'node:vm';
+const source=fs.readFileSync(new URL('../src/theme.js',import.meta.url),'utf8');
+function boot(saved,blocked=false){const handlers={},buttons=['light','dark'].map(theme=>({dataset:{themeChoice:theme},setAttribute(k,v){this[k]=v;}})),root={dataset:{}},meta={setAttribute(k,v){this[k]=v;}},store=new Map(saved===undefined?[]:[['qa-tools-theme',saved]]);
+ const sandbox={document:{documentElement:root,querySelector:()=>meta,querySelectorAll:()=>buttons,addEventListener:(k,v)=>handlers[k]=v},localStorage:{getItem:k=>{if(blocked)throw Error('blocked');return store.get(k);},setItem:(k,v)=>{if(blocked)throw Error('blocked');store.set(k,v);}},addEventListener:(k,v)=>handlers[k]=v};
+ vm.runInNewContext(source,sandbox);return {root,buttons,meta,store,handlers,click:i=>handlers.click({target:{closest:()=>buttons[i]}})};
+}
+test('theme defaults white and restores only a recognized saved choice',()=>{assert.equal(boot().root.dataset.theme,'light');assert.equal(boot('dark').root.dataset.theme,'dark');assert.equal(boot('invalid').root.dataset.theme,'light');const dark=boot('dark');dark.handlers.DOMContentLoaded();assert.equal(dark.buttons[1]['aria-pressed'],'true');assert.equal(dark.meta.content,'#0d1420');});
+test('switch persists preference without reload and follows another tab clearing storage',()=>{const app=boot();app.click(1);assert.equal(app.store.get('qa-tools-theme'),'dark');assert.equal(app.root.dataset.theme,'dark');app.store.clear();app.handlers.storage({key:null});assert.equal(app.root.dataset.theme,'light');assert.equal(app.buttons[0]['aria-pressed'],'true');});
+test('theme remains usable when browser storage is blocked',()=>{const app=boot('dark',true);assert.equal(app.root.dataset.theme,'light');app.click(1);assert.equal(app.root.dataset.theme,'dark');app.click(0);assert.equal(app.root.dataset.theme,'light');});
