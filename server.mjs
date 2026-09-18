@@ -12,7 +12,7 @@ const option = (name, fallback) => args.includes(name) ? args[args.indexOf(name)
 const host = option('--host', '127.0.0.1');
 const port = Number(option('--port', process.env.JSON_COMPARE_PORT || '5175'));
 if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Port must be between 1 and 65535.');
-const allowed = new Set(['/index.html', '/src/theme.js', '/src/main.js', '/src/style.css', '/src/compare.js', '/src/worker.js', '/src/json-tool.js', '/src/items/rules.js', '/src/items/workbook.js', '/src/items/ui.js', '/src/items/example.js', '/src/items/macro.js', '/src/items/macro-template.py', '/src/drop/display.js', '/src/drop/summary-ui.js', '/src/drop/compare-ui.js', '/src/drop/ui.js', '/src/drop/style.css', '/src/vendor/sax.js']);
+const allowed = new Set(['/index.html', '/src/theme.js', '/src/main.js', '/src/style.css', '/src/compare.js', '/src/worker.js', '/src/json-tool.js', '/src/json-display.js', '/src/json-source.js', '/src/source-lines.js', '/src/json-review.js', '/src/items/rules.js', '/src/items/workbook.js', '/src/items/ui.js', '/src/items/example.js', '/src/items/macro.js', '/src/items/macro-template.py', '/src/drop/display.js', '/src/drop/summary-ui.js', '/src/drop/compare-ui.js', '/src/drop/ui.js', '/src/drop/style.css', '/src/vendor/sax.js']);
 const mime = { '.py': 'text/plain; charset=utf-8', '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8' };
 const handleDrop = await createDropService(root);
 const server = http.createServer(async (req, res) => {

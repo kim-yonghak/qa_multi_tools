@@ -48,3 +48,57 @@ html[data-theme="dark"] #json-view .file-summary{background:#182130}
 html[data-theme="dark"] #json-view .file-filters button{background:#202b3c;color:#b8c6db}
 html[data-theme="dark"] #json-view .file-filters button[aria-pressed="true"]{background:#344a6c;border-color:#7d98c7;color:#e4edff}
 @media(max-width:700px){#json-view .file-summary{padding:15px}#json-view .file-summary-heading h2{font-size:13px}}
+
+/* 1.4.11: readable JSON locations and explicit file status labels. */
+#json-view .readable-path{display:flex;flex-direction:column;gap:6px;margin:10px 0;font:500 12px/1.6 Inter,"Malgun Gothic",system-ui,sans-serif;overflow-wrap:anywhere;color:inherit}
+#json-view .path-part{display:block;white-space:pre-wrap}
+#json-view .path-part+.path-part{padding-left:10px;border-left:2px solid var(--border)}
+#json-view .file-filters{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}
+#json-view .file-filters button{min-width:0;padding:8px 4px}
+
+/* 1.4.14: full selected source in a virtualized modal. */
+#json-view .source-full-button{margin-top:14px}
+dialog.json-source-dialog{width:96vw;max-width:1600px;max-height:94vh;box-sizing:border-box;padding:20px;border:1px solid var(--border);border-radius:12px;background:#fff;color:#263750}
+dialog.json-source-dialog::backdrop{background:#10182799}
+.json-source-head{display:flex;justify-content:space-between;align-items:center;gap:16px}.json-source-head h2{font-size:18px;margin:0}
+.json-source-description,.json-source-status{font-size:12px;line-height:1.6;overflow-wrap:anywhere}.json-source-status{color:var(--muted)}
+.json-source-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.json-source-pane{min-width:0;border:1px solid var(--border);border-radius:8px;overflow:hidden}
+.json-source-pane h3{font-size:13px;margin:12px}.json-source-range{font-size:11px;color:var(--muted);margin:10px 12px}
+.json-source-viewport{height:60vh;max-height:700px;min-height:140px;overflow:auto;background:#f7f9fc;position:relative;overflow-anchor:none}
+.json-source-track{position:relative;min-width:100%}.json-source-rows{position:absolute;left:0;width:max-content;min-width:100%}
+.json-source-line{display:flex;height:24px;font:12px/24px Consolas,monospace;white-space:pre;box-sizing:border-box}
+.json-source-number{display:inline-block;flex:0 0 76px;box-sizing:border-box;text-align:right;padding-right:12px;color:#8591a5;user-select:none}
+.json-source-text{display:block;padding-right:18px;white-space:pre;tab-size:4}.json-source-missing{padding:20px;color:var(--muted);font-size:12px}
+html[data-theme="dark"] dialog.json-source-dialog{background:#182130;color:#e4ebf5}html[data-theme="dark"] .json-source-viewport{background:#121c2a}
+@media(max-width:750px){dialog.json-source-dialog{padding:12px}.json-source-grid{grid-template-columns:1fr}.json-source-viewport{height:32vh}.json-source-number{flex-basis:62px}}
+
+/* 1.4.15: search the full source independent of virtualized rows. */
+.json-source-search{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:12px}
+.json-source-search input{flex:1 1 240px;min-width:0}.json-source-search input,.json-source-search select{padding:10px 12px;border:1px solid var(--border);border-radius:7px;background:#fff;color:inherit;font:12px/1.4 system-ui,sans-serif}
+.json-source-search-status{font-size:12px;line-height:1.6;color:var(--muted);min-height:20px;margin:8px 0 12px}
+.json-source-search .quiet{padding:10px 12px;white-space:nowrap}.json-source-hit{background:#ffe082;color:#34270a;border-radius:2px;outline:1px solid #cba339}
+html[data-theme="dark"] .json-source-search input,html[data-theme="dark"] .json-source-search select{background:#121c2a;color:#e4ebf5;border-color:#3d506c}
+html[data-theme="dark"] .json-source-hit{background:#e9c46a;color:#211b0f}
+.json-source-viewport{height:54vh}@media(max-width:750px){.json-source-viewport{height:30vh}.json-source-search input{flex-basis:100%}}
+
+/* 1.4.16: grouped review and full-original comparison. */
+#json-view .json-detail-tools{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0 4px}
+#json-view .json-detail-tools button[aria-pressed="true"]{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+#json-view .json-compact-summary{margin:14px 20px;border:1px solid var(--border);border-radius:8px;padding:14px;font-size:12px;line-height:1.7}
+#json-view .json-compact-summary>summary{cursor:pointer;font-weight:650}#json-view .json-compact-summary>p{color:var(--muted)}
+#json-view .json-compact-groups{max-height:300px;overflow:auto}#json-view .json-compact-group{padding:12px 0;border-top:1px solid var(--border)}
+#json-view .json-compact-values{display:grid;gap:4px;margin:8px 0;overflow-wrap:anywhere;white-space:pre-wrap}
+#json-view .same-file-open{border:0;background:transparent;color:var(--accent);text-align:left;padding:2px;font:inherit;text-decoration:underline;text-underline-offset:3px;overflow-wrap:anywhere;cursor:pointer}
+.json-source-legend:not([hidden]){display:flex;gap:8px;flex-wrap:wrap;margin:0 0 10px;font-size:11px}.json-source-legend span{padding:4px 8px;border-radius:4px}
+.json-line-modified,.json-legend-modified{background:#fff0cf;color:#75520b}.json-line-added,.json-legend-added{background:#e2f4eb;color:#1b6849}.json-line-deleted,.json-legend-deleted{background:#fde8e9;color:#a02f3b}.json-line-reordered,.json-legend-reordered{background:#eee8fc;color:#684496}
+.json-source-line[class*="json-line-"] .json-source-number{color:inherit;opacity:.8}
+html[data-theme="dark"] .json-line-modified,html[data-theme="dark"] .json-legend-modified{background:#3b321d;color:#f1d28e}
+html[data-theme="dark"] .json-line-added,html[data-theme="dark"] .json-legend-added{background:#1c392e;color:#a8e3c6}
+html[data-theme="dark"] .json-line-deleted,html[data-theme="dark"] .json-legend-deleted{background:#40252d;color:#ffc0c9}
+html[data-theme="dark"] .json-line-reordered,html[data-theme="dark"] .json-legend-reordered{background:#312941;color:#d6c2fa}
+
+/* 1.5.0: independent filters for changes inside a selected JSON file. */
+#json-view .json-change-filters{display:flex;flex-wrap:wrap;gap:8px;margin:16px 20px 8px}
+#json-view .json-change-filters button{font-size:12px}
+#json-view .json-change-filters button[aria-pressed="true"]{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent);color:var(--accent)}
+#json-view .json-change-total{margin:8px 20px 14px;font-size:14px;font-weight:650}

@@ -1,9 +1,12 @@
+import { createSourceViewer } from './json-source.js';
+import { fileLabels, wholeFileSummary, readablePath } from './json-display.js';
+
 export function mountJsonTool() {
 const $ = selector => document.querySelector(selector);
 const fmt = n => n.toLocaleString('ko-KR');
 const bytes = n => n >= 1024 ** 3 ? `${(n / 1024 ** 3).toFixed(2)} GB` : `${(n / 1024 ** 2).toFixed(1)} MB`;
 const labels = { modified: '변경', added: '추가', deleted: '삭제', reordered: '순서 변경', error: '오류', same: '동일' };
-const state = { old: null, latest: null, pairs: [], results: [], counts: {}, worker: null, busy: false, selected: null, offset: 0, token: 0, visible: 120, filter: 'all', summaryFilter: null };
+const state = { old: null, latest: null, pairs: [], results: [], counts: {}, worker: null, busy: false, selected: null, offset: 0, token: 0, visible: 120, filter: 'all', summaryFilter: null, detailMode: 'main', groupId: null, changeType: 'all' };
 
 $('#json-view').innerHTML = `
   <div class="json-main">
@@ -18,16 +21,19 @@ $('#json-view').innerHTML = `
     <section id="results-area" hidden>
       <div class="metrics" id="metrics"></div>
       <section id="file-summary" class="file-summary" hidden aria-labelledby="file-summary-title"><div class="file-summary-heading"><h2 id="file-summary-title">파일 목록</h2><button type="button" id="file-summary-close" class="quiet">목록 닫기</button></div><p id="file-summary-note" class="file-summary-note"></p><ul id="file-summary-list" class="file-summary-list"></ul></section>
-      <div class="workspace"><aside class="file-panel"><div class="panel-heading"><h2>파일별 상세 확인</h2><span id="file-count">0</span></div><div class="file-tools"><input type="search" id="search" placeholder="파일명 또는 경로 검색" aria-label="파일명 또는 경로 검색"/><div id="file-filters" class="file-filters" role="group" aria-label="상세 확인 파일 상태 필터"><button type="button" data-file-filter="all" aria-pressed="true">전체</button><button type="button" data-file-filter="modified" aria-pressed="false">변경</button><button type="button" data-file-filter="added" aria-pressed="false">추가</button><button type="button" data-file-filter="deleted" aria-pressed="false">삭제</button><button type="button" data-file-filter="error" aria-pressed="false">오류</button></div></div><div id="file-list" class="file-list"></div><button id="more" class="quiet" hidden>파일 더 보기</button><p class="panel-footnote">내용이 동일한 파일은 숨깁니다.<br/>들여쓰기·객체 키 순서는 무시합니다.</p></aside>
+      <div class="workspace"><aside class="file-panel"><div class="panel-heading"><h2>파일별 상세 확인</h2><span id="file-count">0</span></div><div class="file-tools"><input type="search" id="search" placeholder="파일명 또는 경로 검색" aria-label="파일명 또는 경로 검색"/><div id="file-filters" class="file-filters" role="group" aria-label="상세 확인 파일 상태 필터"><button type="button" data-file-filter="all" aria-pressed="true">전체</button><button type="button" data-file-filter="modified" aria-pressed="false">내용 변경</button><button type="button" data-file-filter="added" aria-pressed="false">신규 파일</button><button type="button" data-file-filter="deleted" aria-pressed="false">삭제 파일</button><button type="button" data-file-filter="error" aria-pressed="false">오류</button><button type="button" data-file-filter="same" aria-pressed="false">동일 파일</button></div></div><div id="file-list" class="file-list"></div><button id="more" class="quiet" hidden>파일 더 보기</button><p class="panel-footnote">전체 목록은 동일 파일을 제외합니다.<br/>동일 파일 버튼에서 원본을 확인하세요.<br/>들여쓰기·객체 키 순서는 무시합니다.</p></aside>
       <section class="detail-panel" id="detail" aria-label="파일 변경 상세"><div class="empty"><div class="empty-icon">{ ± }</div><h2>변경 내용을 살펴보세요</h2><p>비교가 끝나면 왼쪽에서 파일을 선택하세요.</p></div></section></div>
     </section>
   </div>`;
 
+const sourceViewer = createSourceViewer(message => state.worker?.postMessage(message));
+
 function setStatus(message) { $('#status').textContent = message; }
 function resetResults() {
+  sourceViewer.close();
   state.results = []; state.counts = { same: 0, modified: 0, added: 0, deleted: 0, error: 0 };
   state.selected = null; state.token++; state.visible = 120; state.pairs = [];
-  state.filter = 'all'; state.summaryFilter = null; $('#file-summary').hidden = true; $('#file-summary-list').replaceChildren();
+  state.filter = 'all'; state.detailMode = 'main'; state.groupId = null; state.changeType = 'all'; state.summaryFilter = null; $('#file-summary').hidden = true; $('#file-summary-list').replaceChildren();
   state.worker?.terminate(); state.worker = null;
   $('#results-area').hidden = true; $('#progress').hidden = true;
 }
@@ -69,11 +75,12 @@ function createWorker(options) {
   state.worker?.terminate();
   const worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
   worker.onmessage = ({ data }) => {
+    if (data.type.startsWith('source-')) { sourceViewer.handle(data); return; }
     if (data.type === 'progress') {
       $('#progress').value = data.done; setStatus(`${fmt(data.done)} / ${fmt(data.total)} 파일 처리 중 · ${data.path}`);
     } else if (data.type === 'result') {
       state.counts[data.status]++;
-      if (data.status !== 'same') state.results.push(data);
+      state.results.push(data);
       $('#progress').value = Object.values(state.counts).reduce((a, b) => a + b, 0);
       if (state.results.length < 8 || performance.now() - lastRender > 180) renderResults();
     } else if (data.type === 'done') {
@@ -82,7 +89,7 @@ function createWorker(options) {
       setStatus(`비교 완료 · ${fmt(data.total)}개 경로 확인 · 변경·추가·삭제 ${fmt(changed)}개 · 동일 ${fmt(state.counts.same)}개 · 오류 ${fmt(state.counts.error)}개 · ${((performance.now() - started) / 1000).toFixed(1)}초`);
       renderResults();
       if (filteredResults().length) selectFile(filteredResults()[0].path);
-      else if (state.results.length) emptyDetail('해당하는 파일이 없습니다', '필터 또는 검색어를 바꿔주세요.');
+      else if (state.results.some(result => result.status !== 'same')) emptyDetail('해당하는 파일이 없습니다', '필터 또는 검색어를 바꿔주세요.');
       else if (!data.total) emptyDetail('JSON 파일을 찾지 못했습니다', '선택한 폴더와 .json 확장자를 확인하세요.');
       else emptyDetail('변경된 JSON 파일이 없습니다', '두 폴더의 JSON 데이터가 동일합니다.');
     } else if (data.type === 'detail' && data.token === state.token) renderDetail(data);
@@ -119,13 +126,12 @@ $('#cancel').onclick = () => {
   renderResults(); emptyDetail('비교를 중지했습니다', '왼쪽에서 처리된 파일을 확인하거나 비교를 다시 시작하세요.');
 };
 function element(tag, className, text) { const el = document.createElement(tag); if (className) el.className = className; if (text !== undefined) el.textContent = text; return el; }
-const metricLabels = { modified: '변경 파일', added: '추가 파일', deleted: '삭제 파일', error: '확인 필요', same: '동일 파일' };
+const metricLabels = { ...fileLabels, error: '확인 필요' };
 const metricCards = new Map();
 for (const [key, label] of Object.entries(metricLabels)) {
-  const actionable = key !== 'same';
-  const card = element(actionable ? 'button' : 'div', `metric ${key}`);
+  const card = element('button', `metric ${key}`);
   card.append(element('span', '', label), element('strong', '', '0'));
-  if (actionable) {
+  {
     card.type = 'button';
     card.setAttribute('aria-controls', 'file-summary');
     card.setAttribute('aria-expanded', 'false');
@@ -139,7 +145,7 @@ for (const [key, label] of Object.entries(metricLabels)) {
 function renderSummary() {
   const filter = state.summaryFilter;
   for (const [key, card] of metricCards) {
-    if (key !== 'same') {
+    {
       card.setAttribute('aria-expanded', String(key === filter));
       card.classList.toggle('active', key === filter);
     }
@@ -149,10 +155,14 @@ function renderSummary() {
   if (!filter) return;
   const files = state.results.filter(result => result.status === filter);
   $('#file-summary-title').textContent = `${metricLabels[filter]} 목록 · ${fmt(files.length)}개`;
-  $('#file-summary-note').textContent = `${state.busy ? '비교 중인 부분 결과입니다. ' : ''}파일명에 마우스를 올리면 경로를 확인할 수 있습니다. 상세 내용은 아래의 파일별 상세 확인에서 선택하세요.`;
+  $('#file-summary-note').textContent = `${state.busy ? '비교 중인 부분 결과입니다. ' : ''}파일명에 마우스를 올리면 경로를 확인할 수 있습니다. ${filter === 'same' ? '파일명을 누르면 이전·최신 원본과 검색 기능을 열 수 있습니다.' : '상세 내용은 아래의 파일별 상세 확인에서 선택하세요.'}`;
   const fragment = document.createDocumentFragment();
   for (const result of files) {
-    const item = element('li', '', result.path.split('/').pop());
+    const item = element('li');
+    if (filter === 'same') {
+      const open = element('button', 'same-file-open', result.path.split('/').pop()); open.type = 'button'; open.disabled = state.busy;
+      open.title = `${result.path} · 원본 파일 보기`; open.onclick = () => sourceViewer.open(result.path, null, open); item.append(open);
+    } else item.textContent = result.path.split('/').pop();
     item.title = result.path;
     fragment.append(item);
   }
@@ -165,7 +175,7 @@ $('#file-summary-close').onclick = () => {
 };
 function filteredResults() {
   const query = $('#search').value.toLowerCase();
-  return state.results.filter(r => r.path.toLowerCase().includes(query) && (state.filter === 'all' || state.filter === r.status));
+  return state.results.filter(r => r.path.toLowerCase().includes(query) && (state.filter === 'all' ? r.status !== 'same' : state.filter === r.status));
 }
 function renderResults() {
   lastRender = performance.now();
@@ -183,7 +193,7 @@ function renderResults() {
     const parts = result.path.split('/'); const filename = parts.pop();
     const row = element('div', 'file-title'); row.append(element('span', 'file-icon', '{ }'), element('strong', '', filename));
     button.append(row, element('span', 'file-path', parts.join('/') || '최상위 폴더'));
-    const meta = element('div', 'file-meta'); meta.append(element('span', `badge ${result.status}`, labels[result.status]), element('span', '', result.status === 'error' ? '내용 확인 필요' : `${fmt(result.total)}개 차이`));
+    const meta = element('div', 'file-meta'); meta.append(element('span', `badge ${result.status}`, fileLabels[result.status]), element('span', '', result.status === 'error' ? '내용 확인 필요' : result.status === 'added' ? '전체 내용 추가' : result.status === 'deleted' ? '전체 내용 삭제' : `${fmt(result.total)}개 차이`));
     button.append(meta); button.onclick = () => selectFile(result.path); list.append(button);
   }
   if (!filtered.length) list.append(element('p', 'list-empty', state.busy ? '변경 파일을 찾고 있습니다…' : '표시할 파일이 없습니다.'));
@@ -209,12 +219,19 @@ function emptyDetail(title, description) {
 }
 function selectFile(path, offset = 0) {
   if (state.busy) return;
+  sourceViewer.close();
+  if (state.selected !== path) { state.detailMode = 'main'; state.groupId = null; state.changeType = 'all'; }
   state.selected = path; state.offset = offset; state.token++;
   const result = state.results.find(r => r.path === path);
   renderResults();
   if (result?.status === 'error') { emptyDetail(path, result.error); return; }
   emptyDetail('변경 내용을 불러오고 있습니다', path);
-  state.worker.postMessage({ type: 'detail', path, offset, limit: 50, token: state.token });
+  state.worker.postMessage({ type: 'detail', path, offset, limit: 50, token: state.token, mode: state.detailMode, groupId: state.groupId, changeType: state.changeType });
+}
+function pathLabel(rawPath) {
+  const wrap = element('div', 'readable-path');
+  for (const part of readablePath(rawPath)) wrap.append(element('span', 'path-part', part));
+  return wrap;
 }
 function lineText(value) { return value ? value.line === value.endLine ? `${fmt(value.line)}행` : `${fmt(value.line)}–${fmt(value.endLine)}행` : '—'; }
 function valueCell(value, version) {
@@ -228,29 +245,71 @@ function renderDetail(data) {
   const header = element('div', 'detail-header');
   header.append(element('div', 'eyebrow', 'FILE DETAILS'), element('h2', '', data.path));
   const summary = Object.entries(data.counts).filter(([, n]) => n).map(([k, n]) => `${labels[k]} ${fmt(n)}`).join(' · ');
-  header.append(element('p', '', `${fmt(data.total)}개 차이 · ${summary}`)); detail.append(header);
-  const note = element('p', 'detail-note', '행 번호는 각 원본 기준입니다. 배열의 [숫자]는 0부터 시작합니다. 변경 행을 선택하면 값 전체의 앞부분을 확인할 수 있습니다.'); detail.append(note);
+  const fileStatus = state.results.find(result => result.path === data.path)?.status;
+  const wholeFile = wholeFileSummary(fileStatus);
+  header.append(element('p', '', fileStatus === 'same' ? '데이터가 동일한 파일입니다. 원본 파일 비교에서 양쪽 내용을 확인할 수 있습니다.' : wholeFile || `${fmt(data.total)}개 차이 · ${summary}`));
+  const tools = element('div', 'json-detail-tools'), original = element('button', 'quiet', '원본 파일 비교 · 전체 보기'); original.type = 'button';
+  original.onclick = () => sourceViewer.open(data.path, null, original); tools.append(original);
+  if (data.total) for (const [mode, label] of [['main', '반복 변경 묶기'], ['all', '모든 변경 개별 보기']]) {
+    const button = element('button', 'quiet', label); button.type = 'button'; button.setAttribute('aria-pressed', String(state.detailMode === mode));
+    button.onclick = () => { state.detailMode = mode; state.groupId = null; selectFile(data.path); }; tools.append(button);
+  }
+  header.append(tools); detail.append(header);
+  const type = data.changeType || state.changeType;
+  if (data.total) {
+    const filters = element('div', 'json-change-filters'); filters.setAttribute('role', 'group'); filters.setAttribute('aria-label', '파일 내부 변경 유형');
+    for (const [key, label] of [['all', '전체'], ['deleted', '삭제'], ['added', '추가'], ['modified', '변경'], ['reordered', '순서 변경']]) {
+      if (key === 'reordered' && !data.counts.reordered) continue;
+      const count = key === 'all' ? data.total : data.counts[key] || 0;
+      const button = element('button', 'quiet', `${label} ${fmt(count)}`); button.type = 'button'; button.dataset.changeType = key; button.setAttribute('aria-pressed', String(type === key));
+      button.onclick = () => { state.changeType = key; if (state.detailMode === 'group') state.detailMode = 'main'; state.groupId = null; selectFile(data.path); }; filters.append(button);
+    }
+    detail.append(filters);
+    const total = data.filteredTotal ?? (type === 'all' ? data.total : data.counts[type] || 0);
+    const counter = element('p', 'json-change-total', `${type === 'all' ? '총 변경 내역' : `총 ${labels[type]} 항목`}: ${fmt(total)}개`); counter.setAttribute('role', 'status'); detail.append(counter);
+  }
+  const groups = data.groups || [], listTotal = data.listTotal ?? data.total;
+  if (groups.length) {
+    const panel = element('details', 'json-compact-summary'), title = element('summary', '', `반복 변경 ${fmt(data.groupedCount)}건 · ${fmt(groups.length)}개 묶음`);
+    panel.open = true;
+    panel.append(title, element('p', '', '같은 필드의 같은 값이 3건 이상 반복 추가·삭제·변경되면 묶습니다. 객체·배열 전체 추가/삭제와 큰 내용 수정은 개별 목록에 유지하며, 모든 변경은 펼쳐서 확인할 수 있습니다.'));
+    const items = element('div', 'json-compact-groups'), more = element('button', 'quiet', '묶음 더 보기'); more.type = 'button'; let visible = 0;
+    const addGroups = () => {
+      for (const group of groups.slice(visible, visible + 20)) {
+        const item = element('div', 'json-compact-group'); item.append(element('strong', '', `${group.field} · ${labels[group.type] || '변경'} ${fmt(group.count)}건`));
+        const values = element('div', 'json-compact-values'); values.append(element('span', '', `이전: ${group.before}`), element('span', '', `최신: ${group.after}`)); item.append(values);
+        const view = element('button', 'quiet', '이 묶음 개별 확인'); view.type = 'button'; view.onclick = () => { state.detailMode = 'group'; state.groupId = group.id; selectFile(data.path); }; item.append(view); items.append(item);
+      }
+      visible += 20; more.hidden = visible >= groups.length;
+    };
+    more.onclick = addGroups; addGroups(); panel.append(items, more); detail.append(panel);
+  }
+  if (data.total) detail.append(element('p', 'detail-note', `${state.detailMode === 'group' ? '선택한 묶음' : state.detailMode === 'all' ? '모든 변경' : '개별 확인 목록'} ${fmt(listTotal)}건${state.detailMode === 'main' && data.groupedCount ? ` · 반복 변경 ${fmt(data.groupedCount)}건은 위 요약으로 분리했습니다.` : ''}`));
+  if (!data.rows.length) {
+    detail.append(element('p', 'list-empty', fileStatus === 'same' ? '변경된 데이터가 없습니다. 위 버튼으로 원본 전체를 열어 검색하세요.' : data.filteredTotal === 0 ? `선택한 유형(${type === 'all' ? '전체' : labels[type]})에 해당하는 항목이 없습니다.` : '개별 목록에 표시할 변경이 없습니다. 위 요약을 펼치거나 모든 변경 개별 보기를 선택하세요.')); return;
+  }
+  const note = element('p', 'detail-note', '행 번호는 각 원본 기준입니다. 배열 위치는 0부터 시작합니다. 중첩 항목은 위에서 아래 순서로 표시합니다. 변경 행을 선택하면 값 전체의 앞부분을 확인할 수 있습니다.'); detail.append(note);
   const wrapper = element('div', 'table-scroll'); const table = element('table', 'diff-table');
   table.innerHTML = '<thead><tr><th>변경 항목</th><th>이전 버전</th><th>최신 버전</th></tr></thead>';
   const tbody = element('tbody');
   for (const row of data.rows) {
     const tr = element('tr'); tr.tabIndex = 0;
-    const path = element('td', 'path-cell'); path.append(element('span', `badge ${row.type}`, labels[row.type]), element('code', '', row.path), element('small', '', row.method || '키·값 기준'));
+    const path = element('td', 'path-cell'); path.append(element('span', `badge ${row.type}`, wholeFile && row.path === '$' ? (fileStatus === 'added' ? '전체 추가' : '전체 삭제') : labels[row.type]), pathLabel(row.path), element('small', '', wholeFile && row.path === '$' ? '파일 단위 비교' : row.method || '키·값 기준'));
     tr.append(path, valueCell(row.old, 'old-value'), valueCell(row.latest, 'latest-value'));
     const activate = () => { for (const r of tbody.children) r.classList.remove('selected-row'); tr.classList.add('selected-row'); showSource(row); };
     tr.onclick = activate; tr.onkeydown = event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); activate(); } }; tbody.append(tr);
   }
   table.append(tbody); wrapper.append(table); detail.append(wrapper);
   const pager = element('div', 'pager'); const prev = element('button', 'quiet', '← 이전'); const next = element('button', 'quiet', '다음 →');
-  prev.disabled = data.offset === 0; next.disabled = data.offset + data.rows.length >= data.total;
+  prev.disabled = data.offset === 0; next.disabled = data.offset + data.rows.length >= listTotal;
   prev.onclick = () => selectFile(data.path, Math.max(0, data.offset - 50)); next.onclick = () => selectFile(data.path, data.offset + 50);
-  pager.append(prev, element('span', '', `${fmt(data.offset + (data.total ? 1 : 0))}–${fmt(data.offset + data.rows.length)} / ${fmt(data.total)}`), next); detail.append(pager);
+  pager.append(prev, element('span', '', `${fmt(data.offset + (listTotal ? 1 : 0))}–${fmt(data.offset + data.rows.length)} / ${fmt(listTotal)}`), next); detail.append(pager);
   const source = element('div', 'source'); source.id = 'source'; detail.append(source);
   if (tbody.firstChild) tbody.firstChild.click();
 }
 function showSource(row) {
   const source = $('#source'); source.replaceChildren();
-  source.append(element('h3', '', '선택한 변경 값'), element('code', 'source-path', row.path));
+  source.append(element('h3', '', '선택한 변경 값 · 미리보기'), pathLabel(row.path));
   const grid = element('div', 'source-grid');
   for (const [value, label, cls] of [[row.old, '이전 버전', 'old-value'], [row.latest, '최신 버전', 'latest-value']]) {
     const box = element('div', `source-box ${cls}`); box.append(element('h4', '', `${label} · ${lineText(value)}`));
@@ -258,11 +317,13 @@ function showSource(row) {
     if (value) {
       const lines = value.value.split(/\r\n|\r|\n/);
       lines.forEach((line, index) => { const part = element('div', 'source-line'); part.append(element('span', '', String(value.line + index)), element('code', '', line)); pre.append(part); });
-      if (value.truncated) pre.append(element('div', 'truncate-note', '… 큰 값은 앞 1,800자만 미리 표시합니다. 원본에서 나머지를 확인하세요.'));
+      if (value.truncated) pre.append(element('div', 'truncate-note', '… 미리보기는 앞 1,800자까지 표시합니다. 아래 전체 내용 보기에서 나머지를 확인하세요.'));
     } else pre.textContent = '(항목 없음)';
     box.append(pre); grid.append(box);
   }
-  source.append(grid);
+  const full = element('button', 'quiet source-full-button', '전체 내용 보기'); full.type = 'button';
+  full.onclick = () => sourceViewer.open(state.selected, row, full);
+  source.append(grid, full);
 }
 $('#demo').onclick = () => {
   const file = (root, path, data) => { const f = new File([typeof data === 'string' ? data : JSON.stringify(data, null, 2)], path.split('/').pop(), { type: 'application/json' }); Object.defineProperty(f, 'webkitRelativePath', { value: `${root}/${path}` }); return f; };

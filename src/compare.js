@@ -178,11 +178,11 @@ export function* differences(a, b, options = {}, path = '$', method = '') {
   } else if (a.value !== b.value) yield { type: 'modified', path, a, b, method };
 }
 
-function excerpt(text, node) {
+export function excerpt(text, node) {
   if (!node) return null;
   const cap = 1800;
   const raw = text.slice(node.start, Math.min(node.end, node.start + cap));
-  return { line: node.line, endLine: node.endLine, value: raw, truncated: node.end - node.start > cap };
+  return { start: node.start, end: node.end, line: node.line, endLine: node.endLine, value: raw, truncated: node.end - node.start > cap };
 }
 export function summarize(a, b, textA, textB, options = {}, offset = 0, limit = 0) {
   const counts = { added: 0, deleted: 0, modified: 0, reordered: 0 };
