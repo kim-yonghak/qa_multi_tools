@@ -26,6 +26,10 @@ PREPARE_POINT = (960, 570)
 CHAT_POINT = (300, 1050)
 SEND_POINT = (700, 1050)
 COUNTDOWN_SECONDS = 5
+MOUSE_SETTLE_SECONDS = 0.05
+MOUSE_HOLD_SECONDS = 0.1
+MOUSE_CLICK_GAP_SECONDS = 0.1
+COMMAND_SETTLE_SECONDS = 0.4
 
 
 def parse_data(codes, enhancements):
@@ -156,11 +160,25 @@ class WindowsInput:
 
     def click(self, point, repeat=False):
         self.check()
-        self.direct.click(*point, button='left')
-        if repeat:
+        self.direct.moveTo(*point)
+        self.wait(MOUSE_SETTLE_SECONDS)
+        # Send separate DOWN / UP events. A combined click can be missed by the game.
+        # Keep the original two-click sequence at the chat and send positions.
+        for _ in range(2 if repeat else 1):
             self.check()
-            # 기존 스크립트의 click + mouseDown/mouseUp(두 번 클릭) 유지.
-            self.direct.click(*point, button='left')
+            try:
+                self.direct.mouseDown(button='left', _pause=False)
+                self.wait(MOUSE_HOLD_SECONDS)
+            finally:
+                # Release even when F8, a focus change, or the corner fail-safe interrupts
+                # the hold. Only this release bypasses the library's corner check.
+                fail_safe = self.direct.FAILSAFE
+                self.direct.FAILSAFE = False
+                try:
+                    self.direct.mouseUp(button='left', _pause=False)
+                finally:
+                    self.direct.FAILSAFE = fail_safe
+            self.wait(MOUSE_CLICK_GAP_SECONDS)
 
     def prepare(self):
         self.click(PREPARE_POINT)
@@ -170,11 +188,12 @@ class WindowsInput:
 
     def send(self, command):
         self.click(CHAT_POINT, repeat=True)
-        # 한 글자마다 중지/창 전환을 확인합니다. @ 입력은 PyAutoGUI를 사용합니다.
-        for char in command:
-            self.check()
-            self.gui.write(char)
-        self.wait(0.5)
+        # Match the original: one write call, no artificial per-character delay.
+        # This types the command without touching the clipboard.
+        self.check()
+        self.gui.write(command, interval=0)
+        # Allow the game to process queued text before moving to the send button.
+        self.wait(COMMAND_SETTLE_SECONDS)
         self.click(SEND_POINT, repeat=True)
 
 
@@ -210,8 +229,7 @@ class MacroApp:
         self.hotkey = None
         self.storage_error = False
         self.mode = tk.StringVar(value=progress.state['mode'])
-        self.ready = tk.BooleanVar(value=False)
-        self.status = tk.StringVar(value='준비 조건을 확인하고 실행 방식을 선택하세요.')
+        self.status = tk.StringVar(value='실행 방식을 선택한 뒤 실행을 누르세요.')
         self.counter = tk.StringVar()
         self.root.title('QA 통합 툴 · 아이템 매크로')
         self.root.geometry('780x820')
@@ -229,8 +247,6 @@ class MacroApp:
                   '실행을 누르면 창이 최소화됩니다. 5초 안에 게임 창을 선택하세요.\n'
                   '게임 창 전환 시 중지 · F8 긴급 중지 · 마우스 왼쪽 위 모서리로 중지',
                   wraplength=630).pack(anchor='w', pady=(8, 0))
-        self.ready_box = ttk.Checkbutton(frame, text='위 조건을 확인했습니다.', variable=self.ready)
-        self.ready_box.pack(anchor='w', pady=(0, 8))
         self.radios = []
         for text, value in [('1. 전체 구간 실행', 'all'),
                             (f'2. 절반 실행 후 대기 ({(len(items)+1)//2}개 → 나머지 {len(items)//2}개)', 'half')]:
@@ -273,15 +289,11 @@ class MacroApp:
         self.start_button.configure(text=text, state='disabled' if self.running or done or self.storage_error else 'normal')
         self.stop_button.configure(state='normal' if self.running else 'disabled')
         self.reset_button.configure(state='disabled' if self.running or self.storage_error else 'normal')
-        self.ready_box.configure(state='disabled' if self.running else 'normal')
         if done and not self.running:
             self.status.set('전체 구간 처리를 마쳤습니다. 실제 지급 결과를 게임에서 확인하세요.')
 
     def start(self):
         if self.running or self.storage_error:
-            return
-        if not self.ready.get():
-            self.dialog.showinfo('실행 전 확인', '준비 조건을 확인하고 체크해 주세요.', parent=self.root)
             return
         try:
             import keyboard
@@ -308,7 +320,6 @@ class MacroApp:
             self.stop.clear()
             self.hotkey = keyboard.add_hotkey('f8', self.stop.set, suppress=False)
             self.running = True
-            self.ready.set(False)
             self.refresh()
             self.status.set('5초 안에 게임 창을 선택하세요. F8로 취소할 수 있습니다.')
             self.root.iconify()
@@ -391,7 +402,6 @@ class MacroApp:
             self.dialog.showerror('저장 실패', str(error), parent=self.root)
             return
         self.mode.set('all')
-        self.ready.set(False)
         self.status.set('진행을 초기화했습니다. 실행 방식을 다시 선택하세요.')
         self.refresh()
 

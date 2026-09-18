@@ -4,6 +4,9 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import Mock, patch
+from types import SimpleNamespace
+import threading
 
 path = Path(__file__).resolve().parents[1] / 'src/items/macro-template.py'
 spec = importlib.util.spec_from_file_location('macro', path)
@@ -166,6 +169,119 @@ class MacroTests(unittest.TestCase):
                 self.progress.path.write_text(json.dumps(dict(state, **change)))
                 with self.assertRaises(ValueError):
                     macro.Progress(self.items, self.tmp.name)
+
+
+class MouseInputTests(unittest.TestCase):
+    def backend(self, interrupt_on=None, release_error=False):
+        events = []
+        backend = macro.WindowsInput.__new__(macro.WindowsInput)
+        direct = SimpleNamespace(FAILSAFE=True)
+        direct.moveTo = lambda x, y: events.append(('move', x, y))
+        def down(**kwargs):
+            self.assertEqual(kwargs, dict(button='left', _pause=False))
+            self.assertTrue(direct.FAILSAFE)
+            events.append(('down',))
+        def up(**kwargs):
+            self.assertEqual(kwargs, dict(button='left', _pause=False))
+            events.append(('up',))
+            self.assertFalse(direct.FAILSAFE)
+            if release_error:
+                raise RuntimeError('release failed')
+        direct.mouseDown, direct.mouseUp = down, up
+        backend.direct = direct
+        backend.check = lambda: None
+        def wait(seconds):
+            events.append(('wait', seconds))
+            if seconds == interrupt_on:
+                raise macro.Interrupted('F8, corner or focus changed')
+        backend.wait = wait
+        return backend, events
+
+    def test_click_sends_separate_down_hold_up_twice(self):
+        backend, events = self.backend()
+        backend.click((300, 1050), repeat=True)
+        self.assertEqual(events, [('move', 300, 1050), ('wait', macro.MOUSE_SETTLE_SECONDS),
+            ('down',), ('wait', macro.MOUSE_HOLD_SECONDS), ('up',), ('wait', macro.MOUSE_CLICK_GAP_SECONDS),
+            ('down',), ('wait', macro.MOUSE_HOLD_SECONDS), ('up',), ('wait', macro.MOUSE_CLICK_GAP_SECONDS)])
+        self.assertTrue(backend.direct.FAILSAFE)
+
+    def test_single_click_uses_one_down_up_pair(self):
+        backend, events = self.backend()
+        backend.click((960, 570))
+        self.assertEqual(events.count(('down',)), 1)
+        self.assertEqual(events.count(('up',)), 1)
+
+    def test_interrupt_during_hold_releases_without_second_click(self):
+        backend, events = self.backend(interrupt_on=macro.MOUSE_HOLD_SECONDS)
+        with self.assertRaises(macro.Interrupted):
+            backend.click((300, 1050), repeat=True)
+        self.assertEqual(events[-1], ('up',))
+        self.assertEqual(events.count(('down',)), 1)
+        self.assertTrue(backend.direct.FAILSAFE)
+
+    def test_interrupt_before_press_sends_no_click(self):
+        backend, events = self.backend(interrupt_on=macro.MOUSE_SETTLE_SECONDS)
+        with self.assertRaises(macro.Interrupted):
+            backend.click((300, 1050))
+        self.assertNotIn(('down',), events)
+        self.assertNotIn(('up',), events)
+
+    def test_release_error_still_restores_fail_safe(self):
+        backend, events = self.backend(release_error=True)
+        with self.assertRaisesRegex(RuntimeError, 'release failed'):
+            backend.click((300, 1050))
+        self.assertTrue(backend.direct.FAILSAFE)
+        self.assertEqual(events.count(('down',)), 1)
+
+    def test_command_is_written_once_before_wait_and_send_click(self):
+        backend = macro.WindowsInput.__new__(macro.WindowsInput)
+        events = []
+        backend.click = lambda point, repeat=False: events.append(('click', point, repeat))
+        backend.check = lambda: None
+        backend.gui = SimpleNamespace(write=lambda text, interval: events.append(('write', text, interval)))
+        backend.wait = lambda seconds: events.append(('wait', seconds))
+        command = '@itemEnchant 121660106 1 9'
+        backend.send(command)
+        self.assertEqual(events, [('click', macro.CHAT_POINT, True), ('write', command, 0),
+                                 ('wait', 0.8), ('click', macro.SEND_POINT, True)])
+
+    def test_stop_during_text_settle_does_not_click_send(self):
+        backend = macro.WindowsInput.__new__(macro.WindowsInput)
+        backend.click, backend.check = Mock(), Mock()
+        backend.gui = SimpleNamespace(write=Mock())
+        backend.wait = Mock(side_effect=macro.Interrupted('stop during settle'))
+        with self.assertRaises(macro.Interrupted):
+            backend.send('@item 110120101 1')
+        backend.gui.write.assert_called_once_with('@item 110120101 1', interval=0)
+        backend.click.assert_called_once_with(macro.CHAT_POINT, repeat=True)
+
+    def test_gui_start_needs_no_ready_variable_for_full_or_resume(self):
+        for mode, next_index in [('all', 0), ('half', 0), ('half', 2)]:
+            with self.subTest(mode=mode, next_index=next_index), tempfile.TemporaryDirectory() as folder:
+                app = macro.MacroApp.__new__(macro.MacroApp)
+                app.items = [('110120101', '0')] * 4
+                app.progress = macro.Progress(app.items, folder)
+                app.progress.state['next_index'] = next_index
+                app.running = False
+                app.storage_error = False
+                app.stop = threading.Event()
+                app.mode = Mock(get=Mock(return_value=mode))
+                app.root, app.status, app.dialog = Mock(), Mock(), Mock()
+                app.refresh = Mock()
+                app.hotkey = None
+                backend = SimpleNamespace(gui=SimpleNamespace(size=lambda: macro.SCREEN_SIZE))
+                keyboard = SimpleNamespace(add_hotkey=Mock(return_value='F8'), remove_hotkey=Mock())
+                with patch.dict('sys.modules', {'keyboard': keyboard}), \
+                        patch.object(macro, 'WindowsInput', return_value=backend), \
+                        patch.object(macro.threading, 'Thread') as thread:
+                    app.start()
+                    self.assertTrue(app.running)
+                    app.root.iconify.assert_called_once()
+                    thread.return_value.start.assert_called_once()
+                    self.assertEqual(thread.call_args.kwargs['args'],
+                                     (macro.segment_end(4, next_index, mode),))
+                    app.dialog.showerror.assert_not_called()
+                    app.dialog.showinfo.assert_not_called()
 
 
 if __name__ == '__main__':
