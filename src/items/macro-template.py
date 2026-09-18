@@ -115,7 +115,7 @@ def run_segment(items, progress, end, backend, report):
         progress.state['pending'] = None
         progress.save()
         report(index + 1)
-        backend.wait(0.5)
+        backend.wait(0.2)
 
 
 class WindowsInput:
