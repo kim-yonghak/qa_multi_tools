@@ -1,5 +1,6 @@
 // Authoritative mapping: user-supplied final rules, 2026-09-16.
-// Do not derive codes from names or from older mappings.
+// Armor codes were verified against Item.xlsb + String.xlsx.
+// 1.4.7: user confirmed accessory codes and the same name suffixes for every equipment category.
 export const PREFIX_CODES = Object.freeze({
   '초심자의':'20101','숙련자의':'20102','그을린':'20103','성터의':'20104','단단한':'20105','견고한':'20106','규율의':'20107',
   '개척자':'30101','여행자':'30102','달인의':'30103','경비대':'30104','정찰대':'30105','선봉대':'30106','수호의':'30107',
@@ -11,12 +12,24 @@ export const PREFIX_CODES = Object.freeze({
 export const WEAPON_CODES = Object.freeze({
   '권갑':'1101','검/방패':'1110','워드럼':'1111','전투봉':'1112','전투 방패':'1120','대검':'1121','사이드':'1122','지팡이':'1123','단검':'1131','활':'1140','석궁':'1142'
 });
+// Item_Info.ID, T_Attribution=1, Current_Enchant=0; existing five-digit name codes.
+export const ARMOR_CODES = Object.freeze({"모자":"1211","로브":"1212","천 바지":"1213","장갑":"1214","단화":"1215","두건":"1221","조끼":"1222","가죽 바지":"1223","아대":"1224","장화":"1225","투구":"1231","갑옷":"1232","각반":"1233","건틀렛":"1234","그리브":"1235"});
+// User-confirmed accessory mapping; names use PREFIX_CODES exactly as weapons and armor do.
+export const ACCESSORY_CODES = Object.freeze({
+  '목걸이':'1301','귀걸이':'1302','팔찌':'1303','반지':'1304','허리띠':'1305'
+});
+// 1.4.8: user-confirmed cloak mapping with the same five-digit name suffixes.
+export const CLOAK_CODES = Object.freeze({
+  '전투 망토':'1216','파괴 망토':'1226','정령 망토':'1236','용맹 망토':'1246'
+});
+export const ARMOR_PREFIXES = Object.freeze(Object.keys(PREFIX_CODES));
+const EQUIPMENT_CODES = Object.freeze({...WEAPON_CODES,...ARMOR_CODES,...ACCESSORY_CODES,...CLOAK_CODES});
 // Explicit corrections supplied in the rule sheet or demonstrated by the input.
 export const PREFIX_ALIASES = Object.freeze({'그을린의':'그을린','경속의':'결속의','초심자':'초심자의','숙련자':'숙련자의'});
 const compact = s => String(s).normalize('NFC').replace(/\s+/gu, '');
 const prefixByCompact = new Map(Object.keys(PREFIX_CODES).map(s => [compact(s), s]));
 const aliasByCompact = new Map(Object.entries(PREFIX_ALIASES).map(([a,b]) => [compact(a),b]));
-const weapons = Object.keys(WEAPON_CODES).sort((a,b) => compact(b).length - compact(a).length);
+const equipment = Object.keys(EQUIPMENT_CODES).sort((a,b) => compact(b).length - compact(a).length);
 export const blank = value => value === undefined || value === null || String(value).trim() === '';
 
 function enhancement(value) {
@@ -39,14 +52,14 @@ export function convertItem(rawName, separateEnhancement) {
   } else enh = enhancement(inline ?? '0');
   if (enh.error) return { ok:false, original, error:enh.error };
   const token = compact(name);
-  const weapon = weapons.find(w => token.endsWith(compact(w)));
-  if (!weapon) return { ok:false, original, error:'규칙표에 없는 무기 또는 아이템 명칭입니다.' };
-  const prefixToken = token.slice(0, -compact(weapon).length);
+  const kind = equipment.find(w => token.endsWith(compact(w)));
+  if (!kind) return { ok:false, original, error:'규칙표에 없는 장비 종류 또는 아이템 명칭입니다.' };
+  const prefixToken = token.slice(0, -compact(kind).length);
   const prefix = prefixByCompact.get(prefixToken) ?? aliasByCompact.get(prefixToken);
   if (!prefix) return { ok:false, original, error:'규칙표에서 접두/이름을 확인할 수 없습니다. 코드를 생성하지 않았습니다.' };
-  const canonical = `${prefix} ${weapon}`;
+  const canonical = `${prefix} ${kind}`;
   if (name !== canonical) notes.push(`${name} → ${canonical}`);
-  const code = WEAPON_CODES[weapon] + PREFIX_CODES[prefix];
+  const code = EQUIPMENT_CODES[kind] + PREFIX_CODES[prefix];
   return { ok:true, original, canonical, code, enhancement:enh.value, notes, corrected:notes.length > 0 };
 }
 
@@ -129,7 +142,7 @@ export function parseDelimited(text, delimiter = '\t') {
 export function parsePasted(text) {
   const lines = text.replace(/^\uFEFF/, '').split(/\r\n|\r|\n/).filter(x=>x.trim());
   if (lines.length && lines.every(x => /^\s*\|/.test(x) && /\|\s*$/.test(x))) {
-    return lines.map(line => line.trim().slice(1,-1).split('|').map(x=>x.trim())).filter(row => !row.every(cell=>/^:?-{2,}:?$/.test(cell)));
+    return lines.map(line => line.trim().slice(1,-1).split('|').map(x=>x.trim())).filter(row => !row.every(cell=>/^:?-+:?$/.test(cell)));
   }
   return parseDelimited(text, '\t');
 }

@@ -1,4 +1,5 @@
 import {test} from 'node:test';
+import {readFileSync} from 'node:fs';
 import assert from 'node:assert/strict';
 import {convertItem,convertCells,gridToCells,parsePasted,parseDelimited,parseRange,PREFIX_CODES,WEAPON_CODES} from '../src/items/rules.js';
 import {EXAMPLE_GRID,EXAMPLE_TSV} from '../src/items/example.js';
@@ -60,4 +61,55 @@ test('quoted delimited text and UTF8 BOM',()=>{
 });
 test('formula issues propagate with location and do not create code',()=>{
  const r=convertCells([{r:1,c:0,value:'초심자의 권갑'},{r:1,c:1,value:'',issue:'수식 결과 없음'}]);assert.equal(r.errors.length,1);assert.equal(r.errors[0].cell,'A2');assert.equal(r.tsv,'');
+});
+
+// Expected IDs independently extracted from supplied Item_Info -> Item_Base -> Item_String -> String_itemName.
+test('90 Excel-confirmed armor names convert at all four reported enhancements',()=>{
+ const fixture=JSON.parse(readFileSync(new URL('./fixtures/armor-items.json',import.meta.url),'utf8'));
+ for(const {name,code} of fixture)for(const enh of [0,6,7,8]){
+  const r=convertItem(name,enh);assert.equal(r.ok,true,name);assert.equal(r.code,code,name);assert.equal(r.enhancement,String(enh));
+ }
+ assert.equal(convertItem('세루스   천바지 +7').code,'121360101');
+ assert.equal(convertItem('일리아나 그리브 +8').code,'123560106');
+});
+test('unknown equipment and prefixes remain errors without changing weapon rules',()=>{
+ for(const name of ['미등록 모자','미등록 목걸이','세루스 망토','세루스 신발','세루스 벨트'])assert.equal(convertItem(name).ok,false,name);
+ assert.equal(convertItem('정점의 대검').code,'112170170');
+ assert.equal(convertItem('결속의 단검').code,'113155201');
+});
+test('single/mixed dash Markdown separators do not become five phantom items',()=>{
+ const text='| 세루스 모자 | 0 | 세루스 로브 | 0 | 세루스 천 바지 | 0 | 　 | 　 | 　 | 　 |\n| --- | -- | ---- | -- | --- | -- | --- | -- | --- | - |\n| 세루스 모자 | 6 | 세루스 모자 | 6 | 　 | 　 | 　 | 　 | 　 | 　 |';
+ const r=convert(parsePasted(text));assert.equal(r.rows.length,5);assert.equal(r.errors.length,0);
+ assert.deepEqual(r.valid.map(x=>[x.code,x.enhancement]),[['121160101','0'],['121260101','0'],['121360101','0'],['121160101','6'],['121160101','6']]);
+ assert.deepEqual(parsePasted('| :-- | -: |\n| 세루스 모자 | 0 |'),[['세루스 모자','0']]);
+ // A real invalid value must still produce an error, rather than silently dropping its row.
+ const invalid=convert(parsePasted('| 세루스 모자 | - |'));assert.equal(invalid.errors.length,1);
+});
+
+test('user accessory codes produce exact nine-digit IDs with shared name suffixes',()=>{
+ const examples=[['초심자의 목걸이','130120101'],['일리아나 귀걸이','130260106'],['결속의 팔찌','130355201'],['정점의 반지','130470170'],['세루스 허리띠','130560101']];
+ for(const [name,code] of examples){const r=convertItem(name+' +9');assert.equal(r.code,code);assert.equal(r.enhancement,'9');}
+ assert.equal(convertItem('경속의 팔찌').code,'130355201');
+});
+test('user-confirmed shared suffixes remove the old armor-only restriction',()=>{
+ for(const [name,code] of [['정점의 모자','121170170'],['결속의 갑옷','123255201'],['은총의 두건','122165101'],['진시르이 장갑','121455302']])assert.equal(convertItem(name).code,code,name);
+ assert.equal(convertItem('세루스 장화').code,'122560101');
+});
+test('mixed equipment keeps order, duplicates, zero overrides and TSV shape',()=>{
+ const r=convert([['일리아나 권갑',9,'세루스 장화',7,'정점의 반지',12],['정점의 반지',12,'초심자의 목걸이 +9',0,'','']]);
+ assert.equal(r.errors.length,0);
+ assert.equal(r.tsv,'110160106\t9\n122560101\t7\n130470170\t12\n130470170\t12\n130120101\t0');
+ assert.match(r.valid[4].notes[0],/별도 셀 0/);
+});
+
+test('four cloak types preserve multiword names, shared suffixes and enhancements',()=>{
+ for(const [name,code] of [['일리아나 전투 망토','121660106'],['세루스 파괴 망토','122660101'],['결속의 정령 망토','123655201'],['정점의 용맹 망토','124670170']]){
+  const r=convertItem(name+' +9');assert.equal(r.code,code,name);assert.equal(r.enhancement,'9');
+ }
+ assert.equal(convertItem('용맹의 용맹 망토').code,'124645301');
+ assert.equal(convertItem('푸른 월광의 전투망토',0).code,'121640104');
+ assert.equal(convertItem('경속의 정령 망토').code,'123655201');
+ for(const name of ['세루스 망토','세루스 수호 망토','미등록 전투 망토'])assert.equal(convertItem(name).ok,false,name);
+ const r=convert(parsePasted('| 세루스 전투 망토 | 0 | 정점의 용맹 망토 | 7 |\n| - | -- | --- | - |\n| 세루스 전투 망토 | 0 | 세루스 파괴 망토 +9 | 0 |'));
+ assert.equal(r.errors.length,0);assert.equal(r.tsv,'121660101\t0\n124670170\t7\n121660101\t0\n122660101\t0');
 });

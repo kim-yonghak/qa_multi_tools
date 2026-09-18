@@ -1,6 +1,6 @@
 {
   "name": "json-folder-compare",
-  "version": "1.4.5",
+  "version": "1.4.8",
   "private": true,
   "type": "module",
   "scripts": {
