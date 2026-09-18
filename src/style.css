@@ -27,3 +27,24 @@ html[data-theme="dark"]{color-scheme:dark;--group-saturation:24%;--group-lightne
 html[data-theme="dark"] .theme-switch{background:#1b2739;border-color:#3a4b65}html[data-theme="dark"] .theme-switch button{color:#a8b9d3;font-size:11px;font-weight:600}html[data-theme="dark"] .theme-switch button[aria-pressed="true"]{background:#344a6c;color:#e4edff;box-shadow:none}
 @media(max-width:1000px){.topbar-actions .local{display:none}}
 @media(max-width:700px){:root{--topbar-height:66px}.topbar{padding-inline:16px}.brand{font-size:16px;gap:9px}.brand-tag{display:none}.topbar-actions{gap:0}.theme-switch button,html[data-theme="dark"] .theme-switch button{padding:7px 8px;font-size:10px}#dc-count,#dc-detail{scroll-margin-top:130px}}
+
+/* 1.4.10: JSON status file lists, button filters and equal detail columns. */
+#json-view .metric[type="button"]{font:inherit;text-align:left;cursor:pointer;min-width:0;color:inherit;transition:border-color .15s,box-shadow .15s}
+#json-view .metric[type="button"]:hover{border-color:var(--accent)}
+#json-view .metric.active{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+#json-view .file-summary{margin:0 0 20px;padding:18px 20px;border:1px solid var(--border);border-radius:12px;background:#fff}
+#json-view .file-summary-heading{display:flex;align-items:center;justify-content:space-between;gap:12px}
+#json-view .file-summary-heading h2{font-size:14px;margin:0}
+#json-view .file-summary-note{font-size:11px;color:var(--muted);margin:9px 0 14px;line-height:1.6}
+#json-view .file-summary-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));gap:0 22px;max-height:280px;overflow:auto;list-style:none;padding:0;margin:0}
+#json-view .file-summary-list li{font-size:12px;line-height:1.7;padding:8px 0;border-bottom:1px solid var(--border);overflow-wrap:anywhere}
+#json-view .file-summary-list .summary-empty{color:var(--muted);grid-column:1/-1;border-bottom:0}
+#json-view .file-filters{display:flex;flex-wrap:wrap;gap:5px}
+#json-view .file-filters button{flex:1 0 auto;min-width:34px;padding:8px 6px;border:1px solid var(--border);border-radius:6px;background:#fafbfd;color:#65728a;font:600 11px/1.3 Inter,"Malgun Gothic",system-ui,sans-serif;white-space:nowrap}
+#json-view .file-filters button:hover{border-color:var(--accent)}
+#json-view .file-filters button[aria-pressed="true"]{background:#edf0ff;border-color:#aab7ee;color:#344db0}
+#json-view .diff-table th:nth-child(n){width:33.333333%}
+html[data-theme="dark"] #json-view .file-summary{background:#182130}
+html[data-theme="dark"] #json-view .file-filters button{background:#202b3c;color:#b8c6db}
+html[data-theme="dark"] #json-view .file-filters button[aria-pressed="true"]{background:#344a6c;border-color:#7d98c7;color:#e4edff}
+@media(max-width:700px){#json-view .file-summary{padding:15px}#json-view .file-summary-heading h2{font-size:13px}}

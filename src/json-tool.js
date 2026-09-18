@@ -3,7 +3,7 @@ const $ = selector => document.querySelector(selector);
 const fmt = n => n.toLocaleString('ko-KR');
 const bytes = n => n >= 1024 ** 3 ? `${(n / 1024 ** 3).toFixed(2)} GB` : `${(n / 1024 ** 2).toFixed(1)} MB`;
 const labels = { modified: '변경', added: '추가', deleted: '삭제', reordered: '순서 변경', error: '오류', same: '동일' };
-const state = { old: null, latest: null, pairs: [], results: [], counts: {}, worker: null, busy: false, selected: null, offset: 0, token: 0, visible: 120 };
+const state = { old: null, latest: null, pairs: [], results: [], counts: {}, worker: null, busy: false, selected: null, offset: 0, token: 0, visible: 120, filter: 'all', summaryFilter: null };
 
 $('#json-view').innerHTML = `
   <div class="json-main">
@@ -17,7 +17,8 @@ $('#json-view').innerHTML = `
     <div id="status" class="status" role="status" aria-live="polite">두 폴더를 선택하면 비교를 시작할 수 있습니다.</div><progress id="progress" max="1" value="0" hidden></progress>
     <section id="results-area" hidden>
       <div class="metrics" id="metrics"></div>
-      <div class="workspace"><aside class="file-panel"><div class="panel-heading"><h2>변경 파일</h2><span id="file-count">0</span></div><div class="file-tools"><input type="search" id="search" placeholder="파일명 또는 경로 검색" aria-label="파일명 또는 경로 검색"/><select id="filter" aria-label="파일 상태 필터"><option value="all">변경·추가·삭제·오류</option><option value="modified">변경</option><option value="added">추가</option><option value="deleted">삭제</option><option value="error">오류</option></select></div><div id="file-list" class="file-list"></div><button id="more" class="quiet" hidden>파일 더 보기</button><p class="panel-footnote">내용이 동일한 파일은 숨깁니다.<br/>들여쓰기·객체 키 순서는 무시합니다.</p></aside>
+      <section id="file-summary" class="file-summary" hidden aria-labelledby="file-summary-title"><div class="file-summary-heading"><h2 id="file-summary-title">파일 목록</h2><button type="button" id="file-summary-close" class="quiet">목록 닫기</button></div><p id="file-summary-note" class="file-summary-note"></p><ul id="file-summary-list" class="file-summary-list"></ul></section>
+      <div class="workspace"><aside class="file-panel"><div class="panel-heading"><h2>파일별 상세 확인</h2><span id="file-count">0</span></div><div class="file-tools"><input type="search" id="search" placeholder="파일명 또는 경로 검색" aria-label="파일명 또는 경로 검색"/><div id="file-filters" class="file-filters" role="group" aria-label="상세 확인 파일 상태 필터"><button type="button" data-file-filter="all" aria-pressed="true">전체</button><button type="button" data-file-filter="modified" aria-pressed="false">변경</button><button type="button" data-file-filter="added" aria-pressed="false">추가</button><button type="button" data-file-filter="deleted" aria-pressed="false">삭제</button><button type="button" data-file-filter="error" aria-pressed="false">오류</button></div></div><div id="file-list" class="file-list"></div><button id="more" class="quiet" hidden>파일 더 보기</button><p class="panel-footnote">내용이 동일한 파일은 숨깁니다.<br/>들여쓰기·객체 키 순서는 무시합니다.</p></aside>
       <section class="detail-panel" id="detail" aria-label="파일 변경 상세"><div class="empty"><div class="empty-icon">{ ± }</div><h2>변경 내용을 살펴보세요</h2><p>비교가 끝나면 왼쪽에서 파일을 선택하세요.</p></div></section></div>
     </section>
   </div>`;
@@ -26,6 +27,7 @@ function setStatus(message) { $('#status').textContent = message; }
 function resetResults() {
   state.results = []; state.counts = { same: 0, modified: 0, added: 0, deleted: 0, error: 0 };
   state.selected = null; state.token++; state.visible = 120; state.pairs = [];
+  state.filter = 'all'; state.summaryFilter = null; $('#file-summary').hidden = true; $('#file-summary-list').replaceChildren();
   state.worker?.terminate(); state.worker = null;
   $('#results-area').hidden = true; $('#progress').hidden = true;
 }
@@ -79,7 +81,8 @@ function createWorker(options) {
       const changed = state.counts.modified + state.counts.added + state.counts.deleted;
       setStatus(`비교 완료 · ${fmt(data.total)}개 경로 확인 · 변경·추가·삭제 ${fmt(changed)}개 · 동일 ${fmt(state.counts.same)}개 · 오류 ${fmt(state.counts.error)}개 · ${((performance.now() - started) / 1000).toFixed(1)}초`);
       renderResults();
-      if (state.results.length) selectFile(state.results[0].path);
+      if (filteredResults().length) selectFile(filteredResults()[0].path);
+      else if (state.results.length) emptyDetail('해당하는 파일이 없습니다', '필터 또는 검색어를 바꿔주세요.');
       else if (!data.total) emptyDetail('JSON 파일을 찾지 못했습니다', '선택한 폴더와 .json 확장자를 확인하세요.');
       else emptyDetail('변경된 JSON 파일이 없습니다', '두 폴더의 JSON 데이터가 동일합니다.');
     } else if (data.type === 'detail' && data.token === state.token) renderDetail(data);
@@ -104,7 +107,7 @@ $('#compare').onclick = () => {
   state.pairs = [...paths].sort((a, b) => a.localeCompare(b, 'ko')).map(path => ({ path, old: state.old.map.get(path), latest: state.latest.map.get(path) }));
   $('#results-area').hidden = false; $('#progress').hidden = false;
   $('#progress').max = paths.size || 1; $('#progress').value = 0;
-  $('#settings').open = false; $('#search').value = ''; $('#filter').value = 'all';
+  $('#settings').open = false; $('#search').value = ''; state.filter = 'all';
   emptyDetail('JSON 데이터를 비교하고 있습니다', '완료 후 변경 파일을 선택할 수 있습니다.');
   busy(true); started = performance.now(); renderResults();
   createWorker(currentOptions); state.worker.postMessage({ type: 'scan' });
@@ -116,14 +119,60 @@ $('#cancel').onclick = () => {
   renderResults(); emptyDetail('비교를 중지했습니다', '왼쪽에서 처리된 파일을 확인하거나 비교를 다시 시작하세요.');
 };
 function element(tag, className, text) { const el = document.createElement(tag); if (className) el.className = className; if (text !== undefined) el.textContent = text; return el; }
+const metricLabels = { modified: '변경 파일', added: '추가 파일', deleted: '삭제 파일', error: '확인 필요', same: '동일 파일' };
+const metricCards = new Map();
+for (const [key, label] of Object.entries(metricLabels)) {
+  const actionable = key !== 'same';
+  const card = element(actionable ? 'button' : 'div', `metric ${key}`);
+  card.append(element('span', '', label), element('strong', '', '0'));
+  if (actionable) {
+    card.type = 'button';
+    card.setAttribute('aria-controls', 'file-summary');
+    card.setAttribute('aria-expanded', 'false');
+    card.onclick = () => {
+      state.summaryFilter = state.summaryFilter === key ? null : key;
+      renderSummary();
+    };
+  }
+  metricCards.set(key, card); $('#metrics').append(card);
+}
+function renderSummary() {
+  const filter = state.summaryFilter;
+  for (const [key, card] of metricCards) {
+    if (key !== 'same') {
+      card.setAttribute('aria-expanded', String(key === filter));
+      card.classList.toggle('active', key === filter);
+    }
+  }
+  const panel = $('#file-summary'), list = $('#file-summary-list');
+  panel.hidden = !filter;
+  if (!filter) return;
+  const files = state.results.filter(result => result.status === filter);
+  $('#file-summary-title').textContent = `${metricLabels[filter]} 목록 · ${fmt(files.length)}개`;
+  $('#file-summary-note').textContent = `${state.busy ? '비교 중인 부분 결과입니다. ' : ''}파일명에 마우스를 올리면 경로를 확인할 수 있습니다. 상세 내용은 아래의 파일별 상세 확인에서 선택하세요.`;
+  const fragment = document.createDocumentFragment();
+  for (const result of files) {
+    const item = element('li', '', result.path.split('/').pop());
+    item.title = result.path;
+    fragment.append(item);
+  }
+  if (!files.length) fragment.append(element('li', 'summary-empty', '해당하는 파일이 없습니다.'));
+  list.replaceChildren(fragment);
+}
+$('#file-summary-close').onclick = () => {
+  const key = state.summaryFilter;
+  state.summaryFilter = null; renderSummary(); metricCards.get(key)?.focus();
+};
+function filteredResults() {
+  const query = $('#search').value.toLowerCase();
+  return state.results.filter(r => r.path.toLowerCase().includes(query) && (state.filter === 'all' || state.filter === r.status));
+}
 function renderResults() {
   lastRender = performance.now();
-  const metrics = $('#metrics'); metrics.replaceChildren();
-  for (const [key, label] of [['modified', '변경 파일'], ['added', '추가 파일'], ['deleted', '삭제 파일'], ['error', '확인 필요'], ['same', '동일 파일']]) {
-    const card = element('div', `metric ${key}`); card.append(element('span', '', label), element('strong', '', fmt(state.counts[key] || 0))); metrics.append(card);
-  }
-  const query = $('#search').value.toLowerCase(), filter = $('#filter').value;
-  const filtered = state.results.filter(r => r.path.toLowerCase().includes(query) && (filter === 'all' || filter === r.status));
+  for (const [key, card] of metricCards) card.querySelector('strong').textContent = fmt(state.counts[key] || 0);
+  for (const button of $('#file-filters').querySelectorAll('button')) button.setAttribute('aria-pressed', String(button.dataset.fileFilter === state.filter));
+  renderSummary();
+  const filtered = filteredResults();
   $('#file-count').textContent = fmt(filtered.length);
   const list = $('#file-list'); list.replaceChildren();
   for (const result of filtered.slice(0, state.visible)) {
@@ -140,7 +189,20 @@ function renderResults() {
   if (!filtered.length) list.append(element('p', 'list-empty', state.busy ? '변경 파일을 찾고 있습니다…' : '표시할 파일이 없습니다.'));
   $('#more').hidden = filtered.length <= state.visible;
 }
-for (const selector of ['#search', '#filter']) $(selector).addEventListener('input', () => { state.visible = 120; renderResults(); });
+function applyFileFilter() {
+  state.visible = 120;
+  const filtered = filteredResults();
+  if (!state.busy && (!state.selected || !filtered.some(result => result.path === state.selected))) {
+    if (filtered.length) { selectFile(filtered[0].path); return; }
+    state.selected = null; state.token++;
+    emptyDetail('해당하는 파일이 없습니다', '필터 또는 검색어를 바꿔주세요.');
+  }
+  renderResults();
+}
+$('#search').addEventListener('input', applyFileFilter);
+for (const button of $('#file-filters').querySelectorAll('button')) button.onclick = () => {
+  state.filter = button.dataset.fileFilter; applyFileFilter();
+};
 $('#more').onclick = () => { state.visible += 120; renderResults(); };
 function emptyDetail(title, description) {
   const wrap = element('div', 'empty'); wrap.append(element('div', 'empty-icon', '{ ± }'), element('h2', '', title), element('p', '', description)); $('#detail').replaceChildren(wrap);
